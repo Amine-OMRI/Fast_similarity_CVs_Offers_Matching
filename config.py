@@ -1,6 +1,6 @@
 # Data samples that gonna be used to calculate the similarity
 samples = dict(
-    recommendation = [
+    recommendations = [
                       "Je recommande et j'y retournerai avec grand plaisir.",
                       'Nous y retournerons sans hésiter je recommande!',
                       'excellentes et délicieuses que nous conseillons vivement.',

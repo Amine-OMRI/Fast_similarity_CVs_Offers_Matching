@@ -9,17 +9,14 @@ import spacy
 import torch
 import pickle
 import config
-
-from fastapi import FastAPI
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Request
 app = FastAPI()
 
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
 
-@app.get("/api/similarity/{comment_text, sample}")
-def process_querie(querie_text: str = None, requested_sample: str = "problems",
-                   exist_sample_embedds: bool = False) :
+@app.get("/api/similarity/{querie_text, requested_sample, exist_sample_embedds}")
+async def process_querie(querie_text: str = None, requested_sample: str = "problems",
+                   exist_sample_embedds: bool = False) -> list :
     """
     Load the comment and prepare it for the rest of processing
 
@@ -28,10 +25,24 @@ def process_querie(querie_text: str = None, requested_sample: str = "problems",
     Return:
       dict: the cleaned dataset
     """
+
+    # Exceptions hundling
+    if requested_sample not in config.samples.keys():
+        raise HTTPException(
+            status_code=404,
+            detail="requested sample not found",
+            headers={"X-Error": "There goes an error"},
+        )
+    results = await compute_similarity(querie_text, requested_sample, exist_sample_embedds)
+    return results
+
+async def compute_similarity(querie_text: str = None, requested_sample: str = "problems",
+                   exist_sample_embedds: bool = False)-> list:
+
     print("----------------------------------------------------------------------------------------------------------")
     print("[TEXT BEFORE PREPROCESSING]:", querie_text, "\n")
     # Clean the text
-    text = preprocessing(querie_text)
+    text = clean_text(querie_text)
     # Remove emojis
     text = remove_emoji(text)
     print("----------------------------------------------------------------------------------------------------------")
@@ -79,8 +90,7 @@ def process_querie(querie_text: str = None, requested_sample: str = "problems",
     print("[RESULTS AFTER TUNING]:\n{}".format(results))
     return results
 
-
-def preprocessing(text: str = None) -> str:
+def clean_text(text: str = None) -> str:
     """ permet détablir la liste des taches suivantes:
       1. Sans contenu html
       2. Sans liens hypertext
@@ -105,7 +115,6 @@ def preprocessing(text: str = None) -> str:
     except ValueError as e:
         print(e)
     return text
-
 
 def remove_emoji(text: str = None) -> str:
     """ Remove emojis and make sure that the sentence is not empty
@@ -185,15 +194,15 @@ def get_similarity(queries_embedds: np.ndarray,
     """
     # Find the closest sentences of the corpus for each query sentence based on cosine similarity
     # Threshold is the lowes similarity to be considered
-    Score = pd.DataFrame(cosine_similarity(samples_embedds, queries_embedds))
-    print("===>" + str(Score.shape))
-    print(Score)
-    print(Score.index)
+    score = pd.DataFrame(cosine_similarity(samples_embedds, queries_embedds))
+    print("===>" + str(score.shape))
+    print(score)
+    print(score.index)
 
     similarity = list()
     sample_index = list()
-    for elem in tqdm(Score.index):
-        tmp = Score.loc[elem]
+    for elem in tqdm(score.index):
+        tmp = score.loc[elem]
         similarity.append(tmp[tmp.idxmax(axis=1)])
         sample_index.append(tmp.idxmax(axis=1))
         # print("the doc:",elem,"similar to", tmp.idxmax(axis=1),"=",tmp[tmp.idxmax(axis=1)])
@@ -201,7 +210,7 @@ def get_similarity(queries_embedds: np.ndarray,
     # results.sort_values(by=['similarity'],ascending=False, inplace=True)
     # results.reset_index(drop=True, inplace = True)
     return pd.DataFrame({
-        "sentence_idx": Score.index,
+        "sentence_idx": score.index,
         "sample_idx": sample_index,
         "cos_sim": similarity
     })
