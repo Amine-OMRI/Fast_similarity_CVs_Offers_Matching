@@ -10,9 +10,8 @@ import torch
 import pickle
 import config
 import time
+from fastapi import FastAPI, HTTPException
 
-from typing import Optional
-from fastapi import FastAPI, HTTPException, Request
 app = FastAPI()
 
 nlp = spacy.load("fr_dep_news_trf", disable=['tagger', 'ner',
@@ -24,7 +23,7 @@ embedder = SentenceTransformer(config.settings["bert_model"])
 
 @app.get("/api/similarity/{querie_text, requested_sample, exist_sample_embedds}")
 async def process_querie(querie_text: str = None, requested_sample: str = "problems",
-                   exist_sample_embedds: Optional[bool] = False) -> list :
+                   exist_sample_embedds: bool = False) -> list :
     """embedder
     Load the comment and prepare it for the rest of processing
 
