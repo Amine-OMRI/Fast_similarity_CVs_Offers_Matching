@@ -10,3 +10,4 @@ sentence-transformers==1.1.0
 spacy-transformers==1.0.2
 emoji==1.2.0
 torch==1.8.1
+xgboost==1.4.0

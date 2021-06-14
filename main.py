@@ -12,23 +12,26 @@ import config
 import time
 from fastapi import FastAPI, HTTPException
 
-app = FastAPI()
+import xgboost as xgb
 
+# initialise the app
+app = FastAPI()
+# load the nlp model that gonna be used to split the input text
 nlp = spacy.load("fr_dep_news_trf", disable=['tagger', 'ner',
                                              'morphologizer',
                                              'attribute_ruler', 'lemmatizer'])
-
-
+# load the transformer model that will be used to create embeddings
 embedder = SentenceTransformer(config.settings["bert_model"])
 
 @app.get("/api/similarity/{querie_text, requested_sample, exist_sample_embedds}")
-async def process_querie(querie_text: str = None, requested_sample: str = "problems",
-                   exist_sample_embedds: bool = False) -> list :
-    """embedder
+async def process_querie(querie_text: str = None, requested_sample: str = "recommendations",
+                   exist_sample_embedds: bool = True) -> list :
+    """
     Load the comment and prepare it for the rest of processing
 
     Args:
-      comment: the comment that gonna be processed
+      querie_text: the comment that gonna be processed
+      requested_sample: the list of samples that is stored in config.py (the default one is recommendations)
     Return:
       dict: the cleaned dataset
     """
@@ -45,8 +48,7 @@ async def process_querie(querie_text: str = None, requested_sample: str = "probl
 
     return results
 
-async def compute_similarity(querie_text: str = None, requested_sample: str = "problems",
-                   exist_sample_embedds: bool = False)-> list:
+async def compute_similarity(querie_text: str, requested_sample: str, exist_sample_embedds: bool)-> list:
 
     print("----------------------------------------------------------------------------------------------------------")
     print("[TEXT BEFORE PREPROCESSING]:", querie_text, "\n")
@@ -57,9 +59,9 @@ async def compute_similarity(querie_text: str = None, requested_sample: str = "p
     print("--- Cleaning time time %s seconds ---" % (time.time() - start_time))
 
     # Remove emojis
-    start_time = time.time()
-    text = remove_emoji(text)
-    print("--- Removing Emojis time %s seconds ---" % (time.time() - start_time))
+    # start_time = time.time()
+    # text = remove_emoji(text)
+    # print("--- Removing Emojis time %s seconds ---" % (time.time() - start_time))
 
     print("----------------------------------------------------------------------------------------------------------")
     print("[TEXT AFTER PREPROCESSING]:", text, "\n")
@@ -86,13 +88,13 @@ async def compute_similarity(querie_text: str = None, requested_sample: str = "p
         start_time = time.time()
         with open(embedds_path, 'rb') as input_file:
             sample_embedds = pickle.load(input_file)
-            print("[INFO]: loading exsistant sample mebeddings ...\n")
-        print("--- Loading Embeddings time %s seconds ---" % (time.time() - start_time))
+            print("[INFO]: loading Exsistant Sample Embeddings ...\n")
+        print("--- Loading Sample Embeddings time %s seconds ---" % (time.time() - start_time))
     else:
         # Creating Embeddings
         start_time = time.time()
         sample_embedds = create_embeddings(embedder, samples_corpus)
-        print("--- Calculating Embeddings time %s seconds ---" % (time.time() - start_time))
+        print("--- Calculating Sample Embeddings time %s seconds ---" % (time.time() - start_time))
 
         # Save the calculated embeddings
         with open(embedds_path, 'wb') as output_file:
@@ -121,8 +123,16 @@ async def compute_similarity(querie_text: str = None, requested_sample: str = "p
     print("--- Tuning Results time %s seconds ---" % (time.time() - start_time))
 
     print("----------------------------------------------------------------------------------------------------------")
-    print("[RESULTS AFTER TUNING]:\n{}".format(results))
-    return results
+    if (results.similarity == True).any():
+        start_time = time.time()
+        results = results[results.similarity == True]
+        # Sentiment analysis
+        results = classify_results(results, querie_embedds)
+        print("--- Classification Results time %s seconds ---" % (time.time() - start_time))
+        print("----------------------------------------------------------------------------------------------------------")
+        print("[RESULTS AFTER CLASSIFICATION]:\n{}".format(results.shape))
+
+    return results.to_dict(orient="records")
 
 def clean_text(text: str = None) -> str:
     """ permet détablir la liste des taches suivantes:
@@ -165,7 +175,6 @@ def remove_emoji(text: str = None) -> str:
         print(e)
     return text
 
-
 def split_data(nlp, text: str = None) -> list:
     """
     Split the text using Spacy fr_dep_news_trf that is based on Camembert
@@ -192,7 +201,6 @@ def split_data(nlp, text: str = None) -> list:
     data.drop('word_count', axis=1, inplace=True)
     return list(data.Doc.values)
 
-
 def create_embeddings(embedder, text_list: list) -> torch.Tensor:
     """
     Create sentences embeddings
@@ -202,11 +210,8 @@ def create_embeddings(embedder, text_list: list) -> torch.Tensor:
     Return:
       dict: {"sentence":"label"} where label if 0 or 1 (1 = recommendation)
     """
-    # embedder = SentenceTransformer(config.settings["bert_model"])
-    # Query sentences:
     embeddings = embedder.encode(text_list)
     return embeddings
-
 
 def get_similarity(queries_embedds: np.ndarray,
                    samples_embedds: np.ndarray) -> pd.DataFrame:
@@ -244,7 +249,6 @@ def get_similarity(queries_embedds: np.ndarray,
         "cos_sim": similarity
     })
 
-
 def tune_results(results: pd.DataFrame, sub_texts: list) -> pd.DataFrame:
     """
     Check if the requested sentences that came from the comment that
@@ -256,9 +260,41 @@ def tune_results(results: pd.DataFrame, sub_texts: list) -> pd.DataFrame:
     Return:
       dict: {"sentence":"label"} where label if 0 or 1 (1 = recommendation)
     """
-    results['similarity'] = results.apply(lambda row: row.cos_sim >= 0.70, axis=1)
+    threshold = config.settings["threshold"]
+    # print(results['cos_sim'])
+    results['similarity'] = results.apply(lambda row: row.cos_sim >=threshold, axis=1)
     results['sentence_text'] = sub_texts
-    return results.to_dict(orient="records")
+    print(results['sentence_text'])
+    print(results['similarity'])
+
+    # results = results[results.similarity == True]
+    return results
+
+def classify_results(results: pd.DataFrame, queries_embedds: np.ndarray, xgb_model: str = 'model300K.bin') -> pd.DataFrame:
+    """
+    Check if the requested sentences that came from the comment that
+    was splited into multiple snetences is a recommendation or not
+
+    Args:
+      results: pd.DataFrame the output of recommendation detection pipeline
+      queries_embedds: numpy.ndarray array of embeddings of the queries
+      xgb_model: str the name of the pretrained XGBoost model
+    Return:
+      dict: {"sentence":"label"} where label if 0 or 1 (1 = recommendation)
+    """
+    model = xgb.Booster()
+    #print(f'##############{config.settings["trained_xgb_model_path"]}{xgb_model}')
+    model.load_model(f'{config.settings["trained_xgb_model_path"]}{xgb_model}')
+    results_embeddings = np.array([queries_embedds[idx] for idx in results.sentence_idx])
+    d_results_embeddings = xgb.DMatrix(results_embeddings)
+    comments_predict = model.predict(d_results_embeddings)
+    # predicting
+    predictions = [round(value) for value in comments_predict]
+    results = pd.DataFrame({
+        "sentence": results.sentence_text,
+        "rcommendation": predictions})
+    return results
+
 
 # if __name__ == '__main__':
 #
