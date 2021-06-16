@@ -292,7 +292,7 @@ def classify_results(results: pd.DataFrame, queries_embedds: np.ndarray, xgb_mod
     predictions = [round(value) for value in comments_predict]
     results = pd.DataFrame({
         "sentence": results.sentence_text,
-        "rcommendation": predictions})
+        "recommendation": predictions})
     return results
 
 
