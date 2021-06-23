@@ -1109,5 +1109,6 @@ settings = dict(
     bert_model='paraphrase-xlm-r-multilingual-v1',  # 'paraphrase-multilingual-MiniLM-L12-v2',
     sample_embedds_path="./sample_embedds/",
     trained_xgb_model_path="./trained_model/",
+    xgb_model_name="xgb_model.bin",
     threshold=0.50
 )

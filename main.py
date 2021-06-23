@@ -270,7 +270,7 @@ def tune_results(results: pd.DataFrame, sub_texts: list) -> pd.DataFrame:
     # results = results[results.similarity == True]
     return results
 
-def classify_results(results: pd.DataFrame, queries_embedds: np.ndarray, xgb_model: str = 'model300K.bin') -> pd.DataFrame:
+def classify_results(results: pd.DataFrame, queries_embedds: np.ndarray) -> pd.DataFrame:
     """
     Check if the requested sentences that came from the comment that
     was splited into multiple snetences is a recommendation or not
@@ -278,13 +278,12 @@ def classify_results(results: pd.DataFrame, queries_embedds: np.ndarray, xgb_mod
     Args:
       results: pd.DataFrame the output of recommendation detection pipeline
       queries_embedds: numpy.ndarray array of embeddings of the queries
-      xgb_model: str the name of the pretrained XGBoost model
     Return:
       dict: {"sentence":"label"} where label if 0 or 1 (1 = recommendation)
     """
     model = xgb.Booster()
     #print(f'##############{config.settings["trained_xgb_model_path"]}{xgb_model}')
-    model.load_model(f'{config.settings["trained_xgb_model_path"]}{xgb_model}')
+    model.load_model(f'{config.settings["trained_xgb_model_path"]}{config.settings["xgb_model_name"]}}')
     results_embeddings = np.array([queries_embedds[idx] for idx in results.sentence_idx])
     d_results_embeddings = xgb.DMatrix(results_embeddings)
     comments_predict = model.predict(d_results_embeddings)
